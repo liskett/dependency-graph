@@ -11,9 +11,12 @@ from src.cargo import (
     Dependency,
     DependencyError,
     build_dependencies_url,
+    build_versions_url,
     fetch_dependencies,
     load_test_dependencies,
     parse_dependencies,
+    resolve_dependency_version,
+    version_satisfies,
 )
 
 
@@ -162,6 +165,75 @@ class TestGraphDependenciesTests(unittest.TestCase):
             graph_path.write_text("[]", encoding="utf-8")
             with self.assertRaisesRegex(DependencyError, "JSON object"):
                 load_test_dependencies(str(graph_path), "A")
+
+
+class DependencyVersionTests(unittest.TestCase):
+    """Check registry version resolution and basic Cargo requirements."""
+
+    def test_builds_versions_endpoint(self) -> None:
+        self.assertEqual(
+            build_versions_url("https://crates.io", "serde"),
+            "https://crates.io/api/v1/crates/serde/versions",
+        )
+
+    def test_matches_caret_and_tilde_requirements(self) -> None:
+        self.assertTrue(version_satisfies("1.9.0", "^1.2"))
+        self.assertFalse(version_satisfies("2.0.0", "^1.2"))
+        self.assertTrue(version_satisfies("0.2.8", "^0.2.3"))
+        self.assertFalse(version_satisfies("0.3.0", "^0.2.3"))
+        self.assertTrue(version_satisfies("1.2.9", "~1.2.3"))
+        self.assertFalse(version_satisfies("1.3.0", "~1.2.3"))
+
+    def test_matches_comparator_ranges(self) -> None:
+        self.assertTrue(
+            version_satisfies("1.4.0", ">=1.2, <2.0")
+        )
+        self.assertFalse(
+            version_satisfies("2.0.0", ">=1.2, <2.0")
+        )
+
+    @patch("src.cargo.urlopen")
+    def test_resolves_highest_compatible_non_yanked_version(
+        self, mocked_urlopen
+    ) -> None:
+        response = Mock()
+        response.read.return_value = json.dumps({
+            "versions": [
+                {"num": "1.2.0", "yanked": False},
+                {"num": "1.9.0", "yanked": False},
+                {"num": "1.8.0", "yanked": True},
+                {"num": "2.0.0", "yanked": False},
+            ]
+        }).encode("utf-8")
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        mocked_urlopen.return_value = response
+
+        version = resolve_dependency_version(
+            "https://crates.io", "sample", "^1.0"
+        )
+
+        self.assertEqual(version, "1.9.0")
+        request = mocked_urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "https://crates.io/api/v1/crates/sample/versions",
+        )
+
+    @patch("src.cargo.urlopen")
+    def test_reports_no_compatible_version(self, mocked_urlopen) -> None:
+        response = Mock()
+        response.read.return_value = json.dumps({
+            "versions": [{"num": "2.0.0", "yanked": False}]
+        }).encode("utf-8")
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        mocked_urlopen.return_value = response
+
+        with self.assertRaisesRegex(DependencyError, "No stable"):
+            resolve_dependency_version(
+                "https://crates.io", "sample", "^1.0"
+            )
 
 
 if __name__ == "__main__":

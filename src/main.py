@@ -2,45 +2,71 @@
 
 import sys
 
-from src.cargo import Dependency, DependencyError, get_direct_dependencies
+from src.cargo import (
+    Dependency,
+    DependencyError,
+    fetch_dependencies,
+    load_test_dependencies,
+    resolve_dependency_version,
+)
 from src.config import parse_config
+from src.graph import build_dependency_graph
 
 
-def print_dependencies(
-    package: str, version: str, dependencies: list[Dependency], test_mode: bool
-) -> None:
-    """Print the direct dependency list in a predictable human-readable form."""
-    print(f"Direct dependencies of {package} (version {version}):")
-    if not dependencies:
-        print("No direct dependencies found.")
-        return
-    for dependency in dependencies:
-        if test_mode:
-            print(f"- {dependency.name}")
-            continue
-        kind = dependency.kind or "normal"
-        optional = "yes" if dependency.optional else "no"
-        print(
-            f"- {dependency.name} (requirement: {dependency.requirement}; "
-            f"kind: {kind}; optional: {optional})"
-        )
+def print_graph(graph: dict[str, list[str]]) -> None:
+    """Print the graph as a readable adjacency list."""
+    print("Dependency graph:")
+    for package in sorted(graph):
+        dependencies = graph[package]
+        rendered = ", ".join(dependencies) if dependencies else "(none)"
+        print(f"{package} -> {rendered}")
 
 
-def main() -> int:
-    """Validate settings and print the selected package dependencies."""
-    config = parse_config()
+def print_configuration(config) -> None:
+    """Print every user-provided setting as key-value pairs."""
     print("Application configuration:")
     for key, value in config.as_dict().items():
         print(f"{key} = {value}")
+
+
+def load_package(config, package: str, version: str | None) -> list[Dependency]:
+    """Load a package's dependencies from the selected data source."""
+    if config.test_mode:
+        return load_test_dependencies(config.repository, package)
+    if version is None:
+        raise DependencyError(
+            f"No resolved version is available for '{package}'."
+        )
+    return fetch_dependencies(config.repository, package, version)
+
+
+def resolve_version(config, dependency: Dependency) -> str | None:
+    """Resolve an exact version for one transitive dependency."""
+    if config.test_mode:
+        return None
+    requirement = dependency.requirement or "*"
+    return resolve_dependency_version(
+        config.repository, dependency.name, requirement
+    )
+
+
+def main() -> int:
+    """Validate settings, build the graph, and print it."""
+    config = parse_config()
+    print_configuration(config)
     try:
-        dependencies = get_direct_dependencies(config)
+        graph = build_dependency_graph(
+            config.package,
+            config.version,
+            config.max_depth,
+            lambda name, version: load_package(config, name, version),
+            lambda dependency: resolve_version(config, dependency),
+        )
     except DependencyError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     print()
-    print_dependencies(
-        config.package, config.version, dependencies, config.test_mode
-    )
+    print_graph(graph)
     return 0
 
 

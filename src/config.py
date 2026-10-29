@@ -15,6 +15,7 @@ VERSION_PATTERN = re.compile(
 )
 EMPTY = 0
 
+
 @dataclass(frozen=True)
 class AppConfig:
     """Store the application settings parsed from command-line arguments."""
