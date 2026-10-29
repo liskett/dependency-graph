@@ -1,46 +1,76 @@
-"""Command-line entry point for the dependency graph visualizer."""
+"""Command-line entry point for version-aware dependency analysis."""
 
 import sys
 
-from src.cargo import Dependency, DependencyError, get_direct_dependencies
-from src.config import parse_config
+from src.cargo import (
+    Dependency,
+    DependencyError,
+    fetch_dependencies,
+    resolve_dependency_version,
+)
+from src.config import AppConfig, parse_config
+from src.graph import (
+    DependencyLoader,
+    VersionResolver,
+    build_dependency_graph,
+)
+from src.versioned_repository import VersionedRepository
 
 
-def print_dependencies(
-    package: str, version: str, dependencies: list[Dependency], test_mode: bool
-) -> None:
-    """Print the direct dependency list in a predictable human-readable form."""
-    print(f"Direct dependencies of {package} (version {version}):")
-    if not dependencies:
-        print("No direct dependencies found.")
-        return
-    for dependency in dependencies:
-        if test_mode:
-            print(f"- {dependency.name}")
-            continue
-        kind = dependency.kind or "normal"
-        optional = "yes" if dependency.optional else "no"
-        print(
-            f"- {dependency.name} (requirement: {dependency.requirement}; "
-            f"kind: {kind}; optional: {optional})"
+def print_graph(graph: dict[str, list[str]]) -> None:
+    """Print all versioned nodes and their outgoing dependency edges."""
+    print("Dependency graph:")
+    for package in sorted(graph):
+        rendered = ", ".join(graph[package]) or "(none)"
+        print(f"{package} -> {rendered}")
+
+
+def test_version(dependency: Dependency) -> str:
+    """Return the exact version stored in a test dependency."""
+    if dependency.requirement is None:
+        raise DependencyError("Test dependency has no exact version.")
+    return dependency.requirement
+
+
+def make_loaders(
+    config: AppConfig,
+) -> tuple[DependencyLoader, VersionResolver]:
+    """Choose dependency and version loaders for the selected repository."""
+    if config.test_mode:
+        repository = VersionedRepository(config.repository)
+        return repository.dependencies, test_version
+
+    def registry_loader(package: str, version: str) -> list[Dependency]:
+        """Fetch the direct dependencies of one exact crate version."""
+        return fetch_dependencies(config.repository, package, version)
+
+    def registry_version(dependency: Dependency) -> str:
+        """Resolve one Cargo requirement to an exact crate version."""
+        return resolve_dependency_version(
+            config.repository,
+            dependency.name,
+            dependency.requirement or "*",
         )
+
+    return registry_loader, registry_version
 
 
 def main() -> int:
-    """Validate settings and print the selected package dependencies."""
+    """Build and print the dependency graph from CLI settings."""
     config = parse_config()
-    print("Application configuration:")
-    for key, value in config.as_dict().items():
-        print(f"{key} = {value}")
     try:
-        dependencies = get_direct_dependencies(config)
+        loader, resolver = make_loaders(config)
+        graph = build_dependency_graph(
+            config.package,
+            config.version,
+            config.max_depth,
+            loader,
+            resolver,
+        )
     except DependencyError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print()
-    print_dependencies(
-        config.package, config.version, dependencies, config.test_mode
-    )
+    print_graph(graph)
     return 0
 
 
