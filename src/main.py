@@ -1,5 +1,3 @@
-"""Command-line entry point for version-aware dependency analysis."""
-
 import sys
 
 from src.cargo import (
@@ -13,7 +11,9 @@ from src.graph import (
     DependencyLoader,
     VersionResolver,
     build_dependency_graph,
+    node_id,
 )
+from src.load_order import dependency_load_order
 from src.versioned_repository import VersionedRepository
 
 
@@ -23,6 +23,15 @@ def print_graph(graph: dict[str, list[str]]) -> None:
     for package in sorted(graph):
         rendered = ", ".join(graph[package]) or "(none)"
         print(f"{package} -> {rendered}")
+
+
+def print_load_order(order: list[str]) -> None:
+    """Print a deterministic BFS order for dependency discovery."""
+    print("Dependency load order (BFS discovery, root excluded):")
+    for position, package in enumerate(order, start=1):
+        print(f"{position}. {package}")
+    if not order:
+        print("(none)")
 
 
 def test_version(dependency: Dependency) -> str:
@@ -67,10 +76,16 @@ def main() -> int:
             loader,
             resolver,
         )
+        if config.show_load_order:
+            root = node_id(config.package, config.version)
+            order = dependency_load_order(graph, root)
     except DependencyError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print_graph(graph)
+    if config.show_load_order:
+        print_load_order(order)
+    else:
+        print_graph(graph)
     return 0
 
 

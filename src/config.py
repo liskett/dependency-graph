@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 PACKAGE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 VERSION_PATTERN = re.compile(
-    r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
     r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
 )
@@ -26,6 +26,7 @@ class AppConfig:
     version: str
     output: str
     max_depth: int
+    show_load_order: bool = False
 
     def as_dict(self) -> dict[str, str | bool | int]:
         """Return settings as a dictionary for readable console output."""
@@ -78,9 +79,30 @@ def validate_depth(value: str) -> int:
 
 
 def is_http_url(value: str) -> bool:
-    """Return whether value is an absolute HTTP(S) URL."""
-    parsed = urlsplit(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    """Reject malformed HTTP(S) URLs without raising an exception."""
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        _ = parsed.port
+        return True
+    except ValueError:
+        return False
+
+
+def _add_graph_options(parser: argparse.ArgumentParser) -> None:
+    """Register depth and fourth-stage loading-order settings."""
+    parser.add_argument(
+        "--max-depth",
+        default=5,
+        type=validate_depth,
+        help="maximum dependency depth; 0 includes only the root package",
+    )
+    parser.add_argument(
+        "--show-load-order",
+        action="store_true",
+        help="print BFS dependency discovery order instead of the graph",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -116,12 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=validate_output,
         help="path for the SVG graph (default: dependency_graph.svg)",
     )
-    parser.add_argument(
-        "--max-depth",
-        default=5,
-        type=validate_depth,
-        help="maximum dependency depth; 0 includes only the root package",
-    )
+    _add_graph_options(parser)
     return parser
 
 
@@ -143,4 +160,5 @@ def parse_config(argv: list[str] | None = None) -> AppConfig:
         version=args.version,
         output=args.output,
         max_depth=args.max_depth,
+        show_load_order=args.show_load_order,
     )

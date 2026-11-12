@@ -90,6 +90,20 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.parse_quietly(args)
 
+    def test_rejects_bad_url_syntax_and_port(self) -> None:
+        for url in ("http://[broken", "https://example.com:bad"):
+            with self.subTest(url=url):
+                args = self.base_args()
+                args[3] = url
+                with self.assertRaises(SystemExit):
+                    self.parse_quietly(args)
+
+    def test_rejects_unicode_digits_in_version(self) -> None:
+        args = self.base_args()
+        args[5] = "1.2٣.3"
+        with self.assertRaises(SystemExit):
+            self.parse_quietly(args)
+
 
 if __name__ == "__main__":
     unittest.main()
