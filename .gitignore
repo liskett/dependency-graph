@@ -12,3 +12,6 @@ venv/
 htmlcov/
 .pytest_cache/
 
+# Generated diagrams
+*.svg
+*.mmd

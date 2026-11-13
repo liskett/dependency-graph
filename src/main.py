@@ -1,3 +1,5 @@
+"""Command-line entry point for version-aware dependency analysis."""
+
 import sys
 
 from src.cargo import (
@@ -15,6 +17,7 @@ from src.graph import (
 )
 from src.load_order import dependency_load_order
 from src.versioned_repository import VersionedRepository
+from src.visualization import save_visualization
 
 
 def print_graph(graph: dict[str, list[str]]) -> None:
@@ -79,11 +82,18 @@ def main() -> int:
         if config.show_load_order:
             root = node_id(config.package, config.version)
             order = dependency_load_order(graph, root)
+        elif config.visualize:
+            root = node_id(config.package, config.version)
+            mermaid = save_visualization(graph, root, config.output)
     except DependencyError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     if config.show_load_order:
         print_load_order(order)
+    elif config.visualize:
+        print("Mermaid diagram:")
+        print(mermaid)
+        print(f"Saved SVG: {config.output}")
     else:
         print_graph(graph)
     return 0

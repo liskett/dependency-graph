@@ -27,6 +27,7 @@ class AppConfig:
     output: str
     max_depth: int
     show_load_order: bool = False
+    visualize: bool = False
 
     def as_dict(self) -> dict[str, str | bool | int]:
         """Return settings as a dictionary for readable console output."""
@@ -91,7 +92,7 @@ def is_http_url(value: str) -> bool:
 
 
 def _add_graph_options(parser: argparse.ArgumentParser) -> None:
-    """Register depth and fourth-stage loading-order settings."""
+    """Register depth, loading-order, and visualization settings."""
     parser.add_argument(
         "--max-depth",
         default=5,
@@ -102,6 +103,11 @@ def _add_graph_options(parser: argparse.ArgumentParser) -> None:
         "--show-load-order",
         action="store_true",
         help="print BFS dependency discovery order instead of the graph",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="print Mermaid and save matching Mermaid and SVG files",
     )
 
 
@@ -152,7 +158,8 @@ def parse_config(argv: list[str] | None = None) -> AppConfig:
             parser.error("in test mode, --repository must point to a file.")
     elif not is_http_url(args.repository):
         parser.error("--repository must be an absolute HTTP(S) URL.")
-
+    if args.show_load_order and args.visualize:
+        parser.error("--show-load-order and --visualize cannot be combined.")
     return AppConfig(
         package=args.package,
         repository=args.repository,
@@ -161,4 +168,5 @@ def parse_config(argv: list[str] | None = None) -> AppConfig:
         output=args.output,
         max_depth=args.max_depth,
         show_load_order=args.show_load_order,
+        visualize=args.visualize,
     )
